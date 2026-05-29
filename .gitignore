@@ -1,0 +1,73 @@
+# .gitignore — Files Git Should Never Track
+# ==========================================
+#
+# WHY THIS MATTERS FOR CI/CD:
+# The CI pipeline clones your repo. If secrets or build artifacts end up
+# in git history, they're a security and reliability problem:
+#
+#   .env files  → secrets in git = secret leak (a top OWASP risk)
+#   __pycache__ → binary files in git = merge conflicts, bloated repo
+#   htmlcov/    → generated reports don't belong in source control
+#   .venv/      → dependencies should be installed from requirements.txt
+
+# =========================
+# Python
+# =========================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.pyd
+
+# Distribution / packaging
+.eggs/
+*.egg-info/
+dist/
+build/
+MANIFEST
+
+# Virtual environments (ALWAYS in gitignore — never commit your venv)
+.venv/
+venv/
+ENV/
+env/
+ci_cd/          # The local virtual environment for this project
+.env.bak
+
+# =========================
+# Testing & Coverage
+# =========================
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/          # HTML coverage report (generated, not authored)
+.tox/
+
+# =========================
+# Environment Variables (THE MOST IMPORTANT ENTRY)
+# =========================
+# .env contains secrets (API keys, DB passwords). NEVER commit these.
+# Use environment variables injected by your CI/CD system at runtime.
+.env
+.env.local
+.env.*.local
+
+# =========================
+# IDE / Editor
+# =========================
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store            # macOS Finder metadata — never belongs in a repo
+
+# =========================
+# Docker
+# =========================
+.docker/
+
+# =========================
+# Logs
+# =========================
+*.log
+logs/

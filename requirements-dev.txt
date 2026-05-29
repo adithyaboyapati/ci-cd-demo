@@ -1,0 +1,24 @@
+# requirements-dev.txt — Development & CI Dependencies
+# ======================================================
+#
+# These packages are installed in the CI pipeline for testing & linting,
+# but are NOT included in the production Docker image.
+#
+# Keeping them separate:
+#   1. Reduces image size (pytest alone adds ~10MB)
+#   2. Reduces attack surface (fewer packages = fewer vulnerabilities)
+#   3. Prevents "but I didn't install dev deps" confusion in production
+
+# Include production deps (always test against the real app dependencies)
+-r requirements.txt
+
+# Testing
+pytest==8.3.5
+pytest-cov==6.0.0        # Coverage reporting — enforces the 80% gate in CI
+
+# Code quality — catches bugs before tests even run
+flake8==7.2.0
+flake8-bugbear==24.12.12  # Extra bug-detecting rules
+
+# Type checking (optional but recommended for larger projects)
+# mypy==1.13.0

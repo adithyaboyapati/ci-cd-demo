@@ -1,0 +1,66 @@
+# docker-compose.yml — Local Development Environment
+# =====================================================
+#
+# WHY DOCKER COMPOSE?
+# Docker Compose lets any developer (or CI runner) start the complete
+# application with a SINGLE command: `docker compose up`
+#
+# No more "README says install X, Y, Z then configure A and B..." setup.
+# This is sometimes called "zero-to-running" developer experience.
+#
+# CI/CD CONNECTION:
+# docker-compose.yml doubles as documentation for what services the app needs.
+# When you add a database or cache, you add it here first, then update
+# your CI pipeline to match. The two stay in sync.
+#
+# FOR PRODUCTION:
+# We don't use docker-compose in production. We use this only for:
+#   1. Local development
+#   2. Integration testing in CI (e.g., spinning up a Postgres service)
+
+version: "3.9"
+
+services:
+  # ─────────────────────────────────────────────
+  # The Flask Application
+  # ─────────────────────────────────────────────
+  app:
+    # Build from our Dockerfile (multi-stage)
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime  # Use the slim runtime stage, not the builder
+
+    # Map container port 5000 to host port 5000
+    ports:
+      - "5000:5000"
+
+    # Environment variables injected at RUNTIME (not baked into the image)
+    # WHY: The same Docker image runs in dev, staging, and production.
+    # The environment variables are what differs — not the image.
+    environment:
+      - FLASK_ENV=development
+      - SECRET_KEY=local-dev-secret-not-for-production
+
+    # Restart policy — matches what a real orchestrator (K8s, ECS) would do
+    restart: unless-stopped
+
+    # Health check — docker compose ps shows "healthy" when this passes
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:5000/api/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+# ─────────────────────────────────────────────────────────────
+# HOW TO USE THIS FILE:
+#
+#   Start:          docker compose up
+#   Start (detach): docker compose up -d
+#   See logs:       docker compose logs -f
+#   Stop:           docker compose down
+#   Rebuild image:  docker compose up --build
+#   Shell into app: docker compose exec app bash
+# ─────────────────────────────────────────────────────────────

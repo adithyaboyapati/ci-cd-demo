@@ -1,0 +1,52 @@
+# .dockerignore — Files to Exclude from Docker Build Context
+# =============================================================
+#
+# WHY THIS FILE MATTERS:
+# When you run `docker build`, Docker sends ALL files in the directory
+# to the Docker daemon (the "build context"). Without .dockerignore:
+#   - Your virtualenv (.venv) gets sent → slow builds, wasted bandwidth
+#   - Your .env file gets sent → secrets potentially embedded in the image
+#   - Test files get sent → not needed in production, just adds size
+#
+# The CI pipeline builds Docker images — a bloated build context means
+# slower CI pipelines. This file keeps builds fast and secure.
+
+# Python artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments (NEVER put node_modules or .venv in an image)
+.venv/
+venv/
+env/
+
+# Test artifacts (not needed in the production image)
+tests/
+htmlcov/
+.coverage
+.pytest_cache/
+
+# Development config (not needed in production)
+.flake8
+pyproject.toml
+requirements-dev.txt
+
+# Environment files (NEVER copy .env into an image — use runtime secrets)
+.env
+.env.*
+
+# CI/CD files (not needed inside the container)
+.github/
+.git/
+*.md
+
+# IDE files
+.idea/
+.vscode/
+*.swp

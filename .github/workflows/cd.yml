@@ -1,0 +1,220 @@
+# =============================================================================
+# .github/workflows/cd.yml — Continuous Deployment Pipeline
+# =============================================================================
+#
+# ┌─────────────────────────────────────────────────────────┐
+# │  WHAT IS CONTINUOUS DEPLOYMENT?                         │
+# │                                                         │
+# │  CD = "Every successful merge to main is automatically  │
+# │  built, tagged, and published — ready to deploy."       │
+# │                                                         │
+# │  The three promises CD makes:                           │
+# │  1. The artifact (Docker image) is immutable & traceable│
+# │  2. Every release has a human-readable changelog        │
+# │  3. Deployment is a single step (not a manual ritual)   │
+# └─────────────────────────────────────────────────────────┘
+#
+# CONTINUOUS DELIVERY vs CONTINUOUS DEPLOYMENT:
+#   Delivery:    Automated build + publish, but MANUAL final deploy trigger
+#   Deployment:  Fully automated — merge → live in production automatically
+#
+# This pipeline implements CONTINUOUS DELIVERY:
+#   → Automatically builds, tags, and pushes the Docker image to GHCR
+#   → A human (or a separate release pipeline) decides when to deploy
+#   → This is the safer starting point for most teams
+#
+# WHEN DOES THIS RUN?
+#   ONLY on push to `main` — NOT on PRs, NOT on feature branches.
+#   WHY: Only verified, reviewed, merged code reaches the registry.
+#
+# =============================================================================
+
+name: "🚀 Continuous Deployment"
+
+on:
+  push:
+    branches: ["main"]    # Only trigger on merges to main
+
+# Required for pushing to GitHub Container Registry (GHCR)
+permissions:
+  contents: write         # To create GitHub Releases
+  packages: write         # To push Docker images to GHCR
+
+jobs:
+  # ─────────────────────────────────────────────────────────
+  # JOB 1: PUBLISH DOCKER IMAGE
+  # Build the final Docker image and push it to GitHub Container Registry.
+  #
+  # WHY GITHUB CONTAINER REGISTRY (GHCR)?
+  #   - Free for public repos
+  #   - Integrated with GitHub (same auth, same permissions)
+  #   - Images are linked to your GitHub repo automatically
+  #   - Works exactly like Docker Hub but zero additional setup
+  # ─────────────────────────────────────────────────────────
+  publish:
+    name: "🐳 Build & Push Docker Image"
+    runs-on: ubuntu-latest
+
+    # Output the image tag so subsequent jobs can reference it
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+      version: ${{ steps.version.outputs.version }}
+
+    steps:
+      - name: "📥 Checkout code"
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # WHY: Full history needed to count commits for versioning
+
+      - name: "🏷️ Generate version number"
+        id: version
+        run: |
+          # Version format: v1.0.<commit-count>-<short-sha>
+          # WHY: Every image is uniquely traceable to a commit.
+          # If production has a bug, you can look at the image tag,
+          # find the exact commit, and see exactly what changed.
+          COMMIT_COUNT=$(git rev-list --count HEAD)
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          VERSION="v1.0.${COMMIT_COUNT}-${SHORT_SHA}"
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Generated version: ${VERSION}"
+
+      - name: "🐳 Log in to GitHub Container Registry"
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          # WHY GITHUB_TOKEN? It's automatically created for each workflow run.
+          # You don't manage it — GitHub rotates it automatically.
+          # It expires when the job ends. Much safer than a static PAT.
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: "🏷️ Extract Docker image metadata"
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            # Tag with the commit SHA (immutable, traceable)
+            type=sha,format=long
+            # Tag with our version number
+            type=raw,value=${{ steps.version.outputs.version }}
+            # Tag as 'latest' (always points to the most recent main build)
+            type=raw,value=latest
+          # WHY THREE TAGS?
+          # sha:    ghcr.io/you/ci-cd-demo:sha-abc1234  ← exact commit
+          # version: ghcr.io/you/ci-cd-demo:v1.0.42-abc1234 ← human-readable
+          # latest:  ghcr.io/you/ci-cd-demo:latest ← "give me the newest"
+
+      - name: "🐳 Set up Docker Buildx"
+        uses: docker/setup-buildx-action@v3
+
+      - name: "🏗️ Build and push Docker image"
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true            # This is the CD step — we DO push to registry
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha  # Reuse cached layers from CI runs (faster!)
+          cache-to: type=gha,mode=max
+
+      - name: "✅ Deployment summary"
+        run: |
+          echo "## 🐳 Docker Image Published" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** ${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Author:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Pull this image:" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ghcr.io/${{ github.repository }}:latest" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+  # ─────────────────────────────────────────────────────────
+  # JOB 2: CREATE GITHUB RELEASE
+  # Automatically generate a release with changelog.
+  #
+  # WHY AUTO-GENERATE RELEASES?
+  # Manual release notes are a bottleneck. Teams either:
+  #   a) Skip writing them (no audit trail)
+  #   b) Write them inconsistently (every engineer has different style)
+  #
+  # Auto-generated releases from commit messages give you:
+  #   - A complete audit trail: who changed what, and when
+  #   - Searchable history: "when did we change the health check endpoint?"
+  #   - Stakeholder communication: non-engineers can read what shipped
+  # ─────────────────────────────────────────────────────────
+  release:
+    name: "📦 Create GitHub Release"
+    runs-on: ubuntu-latest
+    needs: [publish]
+
+    steps:
+      - name: "📥 Checkout code"
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: "📦 Create GitHub Release"
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.publish.outputs.version }}
+          name: "Release ${{ needs.publish.outputs.version }}"
+          generate_release_notes: true  # GitHub auto-generates notes from commits
+          body: |
+            ## 🚀 What's in this release
+
+            This release was automatically created by the CD pipeline.
+
+            **Docker Image:**
+            ```
+            docker pull ghcr.io/${{ github.repository }}:latest
+            docker pull ghcr.io/${{ github.repository }}:${{ needs.publish.outputs.version }}
+            ```
+
+            **Commit:** `${{ github.sha }}`
+            **Triggered by:** @${{ github.actor }}
+
+            ---
+            *See the full changelog above, auto-generated from commit messages.*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ─────────────────────────────────────────────────────────
+  # JOB 3: DEPLOYMENT NOTIFICATION
+  # Announce the deployment in the GitHub Actions summary.
+  #
+  # In a real production setup, this job would:
+  #   - Send a Slack/Teams notification: "v1.0.42 deployed to staging"
+  #   - Trigger a deployment to Railway/Render/AWS
+  #   - Update a deployment tracking dashboard
+  # ─────────────────────────────────────────────────────────
+  notify:
+    name: "📣 Deployment Complete"
+    runs-on: ubuntu-latest
+    needs: [publish, release]
+
+    steps:
+      - name: "📣 Write deployment summary"
+        run: |
+          echo "# 🎉 Deployment Pipeline Complete!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Step | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Docker image built | ✅ |" >> $GITHUB_STEP_SUMMARY
+          echo "| Image pushed to GHCR | ✅ |" >> $GITHUB_STEP_SUMMARY
+          echo "| GitHub Release created | ✅ |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** \`${{ needs.publish.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🐳 Run the latest version:" >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo "docker run -p 5000:5000 ghcr.io/${{ github.repository }}:latest" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### ✅ Verify it's running:" >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo "curl http://localhost:5000/api/health" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY

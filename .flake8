@@ -1,0 +1,40 @@
+[flake8]
+# .flake8 — Linting Configuration
+# ==================================
+#
+# WHY LINTING IN CI?
+# Linting catches bugs that tests miss:
+#   - Undefined variables (would cause NameError in production)
+#   - Unused imports (dead code that obscures intent)
+#   - Complexity warnings (functions too complex to test reliably)
+#
+# Linting runs BEFORE tests in the CI pipeline.
+# This is intentional: if the code has syntax errors, why run 30 tests?
+# Fail fast, fail early.
+#
+# WHY CONSISTENT FORMATTING?
+# Code review is a key gate in CI/CD. If every PR has style debates
+# ("4 spaces vs 2 spaces"), engineers waste time on trivia instead of logic.
+# Enforced style removes that conversation entirely.
+
+# Maximum line length (79 = PEP8 standard, 119 = more practical)
+max-line-length = 119
+
+# Files/directories to skip linting
+exclude =
+    .git,
+    __pycache__,
+    .venv,
+    venv,
+    htmlcov,
+    .eggs,
+    *.egg-info,
+    build,
+    dist
+
+# Ignore specific rules (documented WHY for each)
+# E203: Whitespace before ':' — conflicts with black formatter
+# W503: Line break before binary operator — PEP8 updated to prefer this
+extend-ignore =
+    E203,
+    W503
