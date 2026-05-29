@@ -33,7 +33,7 @@ tasks_bp = Blueprint("tasks", __name__)
 # HEALTH CHECK — Required by any serious production deployment
 # =============================================================================
 
-@tasks_bp.route("/healthy", methods=["GET"])
+@tasks_bp.route("/health", methods=["GET"])
 def health_check():
     """
     Liveness probe endpoint.
